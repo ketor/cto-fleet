@@ -15,7 +15,7 @@ git clone git@github.com:ketor/cto-fleet.git ~/.claude/skills/cto-fleet
 
 New machine? Just clone + `./setup`. That's it.
 
-## Skill Catalog (32 skills)
+## Skill Catalog (40 skills)
 
 ### Router
 
@@ -31,6 +31,7 @@ New machine? Just clone + `./setup`. That's it.
 | `team-debug` | Systematic bug diagnosis with dual root cause analysis |
 | `team-refactor` | Atomic refactoring with impact analysis and batch execution |
 | `team-perf` | Performance profiling and iterative optimization |
+| `team-test` | Test strategy analysis and coverage improvement |
 
 ### Review & Analysis
 
@@ -39,6 +40,9 @@ New machine? Just clone + `./setup`. That's it.
 | `team-review` | Multi-dimensional code review with iterative fix cycles (max 5 rounds) |
 | `team-arch` | Architecture analysis with dual consensus and Mermaid diagrams |
 | `team-security` | Security audit with dual independent manual review |
+| `team-threat-model` | STRIDE/DREAD threat modeling |
+| `team-accessibility` | WCAG accessibility audit |
+| `team-contract-test` | API contract testing |
 
 ### Design & Proposals
 
@@ -48,6 +52,7 @@ New machine? Just clone + `./setup`. That's it.
 | `team-design-review` | Design document evaluation with devil's advocate challenge |
 | `team-api-design` | API specification design (REST/gRPC/GraphQL) |
 | `team-adr` | Architecture Decision Record generation |
+| `team-schema` | Database schema design and migration |
 
 ### Operations & Release
 
@@ -60,6 +65,8 @@ New machine? Just clone + `./setup`. That's it.
 | `team-cost` | Infrastructure cost optimization analysis |
 | `team-deps` | Dependency health check with CVE scanning |
 | `team-observability` | Observability design (SLI/SLO/alerting config generation) |
+| `team-cicd` | CI/CD pipeline optimization |
+| `team-chaos` | Chaos engineering resilience testing |
 
 ### Research & Documentation
 
@@ -79,6 +86,10 @@ New machine? Just clone + `./setup`. That's it.
 | `team-compliance` | Compliance audit (SOC2/GDPR/HIPAA/PCI) |
 | `team-migration` | Migration planning with rollback verification |
 | `team-interview` | Interview question generation from codebase patterns |
+| `team-dora` | DORA metrics and engineering productivity |
+| `team-feature-flag` | Feature flag lifecycle management |
+| `team-governance` | AI/Agent governance audit |
+| `team-i18n` | Internationalization audit |
 
 ### Reporting
 
@@ -143,7 +154,7 @@ Problem → Agent B (independent) ──┘
 ├── cto-fleet/            # This repo
 │   ├── setup             # Auto-symlink installer
 │   ├── team/             # Router skill
-│   ├── team-*/           # 29 team skills
+│   ├── team-*/           # 40 team skills
 │   ├── drawio/           # Diagram generation
 │   └── cto-fleet-upgrade/
 ├── team -> cto-fleet/team

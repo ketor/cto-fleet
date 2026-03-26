@@ -1,7 +1,7 @@
 ---
 name: team-report
-description: 启动一个报告生成团队（data-gatherer/writer×2/reviewer），通过多源数据采集+双写手独立撰写+交叉审查，生成面向不同受众的高质量技术报告。使用方式：/team-report [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--mode=board|team|investor|briefing] [--period=1w|2w|1m|1q] [--output=file|stdout] [--lang=zh|en] 项目路径或描述
-argument-hint: [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--mode=board|team|investor|briefing] [--period=1w|2w|1m|1q] [--output=file|stdout] [--lang=zh|en] 项目路径或描述
+description: 启动一个报告生成团队（data-gatherer/writer×2/reviewer），通过多源数据采集+双写手独立撰写+交叉审查，生成面向不同受众的高质量技术报告。使用方式：/team-report [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--mode=board|team|investor|briefing] [--period=1w|2w|1m|1q] [--output=file|stdout] [--format=markdown|email|slack|ppt-outline] [--lang=zh|en] 项目路径或描述
+argument-hint: [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--mode=board|team|investor|briefing] [--period=1w|2w|1m|1q] [--output=file|stdout] [--format=markdown|email|slack|ppt-outline] [--lang=zh|en] 项目路径或描述
 ---
 
 ## Preamble (run first)
@@ -21,7 +21,49 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 - `--mode=board|team|investor|briefing`：报告模式（默认 `team`）
 - `--period=1w|2w|1m|1q`：报告周期（默认 `1w`）
 - `--output=file|stdout`：输出方式（默认 `stdout`）
+- `--format=markdown|email|slack|ppt-outline`：输出格式（默认 `markdown`）
 - `--lang=zh|en`：输出语言（默认 `zh` 中文）
+
+### 多格式输出支持
+
+`--format` 参数控制最终报告的呈现格式，适配不同分发场景：
+
+| 格式 | 说明 | 结构 |
+|------|------|------|
+| `markdown` | 标准 Markdown 格式（默认） | 完整报告 |
+| `email` | 邮件摘要格式 | 主题行 + 3-5 要点 + 行动项 |
+| `slack` | Slack 消息格式 | emoji 标记 + 简短段落 + 链接 |
+| `ppt-outline` | PPT 大纲格式 | 每页标题 + 3 要点 + speaker notes |
+
+格式与模式组合建议：
+
+| 模式 | 推荐格式 | 原因 |
+|------|---------|------|
+| `board` | `ppt-outline` 或 `email` | 高管习惯幻灯片或邮件简报 |
+| `team` | `markdown` 或 `slack` | 团队常用 Markdown 文档或 Slack 频道 |
+| `investor` | `ppt-outline` | 投资方演示场景 |
+| `briefing` | `slack` 或 `email` | 晨报适合即时推送 |
+
+各格式输出规范：
+
+**`email` 格式**：
+- 第一行为邮件主题：`[{mode}报告] {project_name} — {period} 总结`
+- 正文以 3-5 个关键要点开头（bullet points）
+- 末尾附"需要关注的行动项"列表
+- 总长度控制在屏幕一屏以内
+
+**`slack` 格式**：
+- 使用 Slack 兼容 mrkdwn 语法
+- 状态用 emoji 标记：✅ 完成、🔴 阻塞、⚠️ 风险、📈 上升、📉 下降
+- 段落间用分隔线 `---`
+- 关键数字用 `*bold*` 强调
+- 末尾附相关链接（如报告完整版文件路径）
+
+**`ppt-outline` 格式**：
+- 每页输出格式：`## Slide N: {标题}`
+- 每页 3 个要点（bullet points），每点不超过 15 字
+- 每页附 `> Speaker Notes:` 块，包含展开说明（2-3 句）
+- 建议页数：board 5-8 页，investor 6-10 页，team 8-12 页
 
 | 模式 | 用户确认范围 | 条件节点处理 |
 |------|-------------|-------------|
@@ -205,9 +247,137 @@ Team lead 将 data-gatherer 的数据包分发给两位 writer，同时传递：
 - 结构：告警 → 依赖更新 → 关键指标 → 今日重点
 - 每项不超过一行
 
+### 模板库
+
+每种模式提供预置报告骨架，Writer 可基于模板填充数据，确保格式一致性。模板中 `{变量名}` 为占位符，Writer 需替换为实际数据。
+
+**`board` 模式模板**：
+```
+# {project_name} — {period} 执行摘要
+
+## 关键指标
+- 整体进度：{progress_pct}%（目标：{target_pct}%）
+- 本期提交：{total_commits} 次，活跃贡献者 {active_contributors} 人
+- 风险等级：{risk_level}（🟢 绿 / 🟡 黄 / 🔴 红）
+
+## 风险与阻塞
+{risk_items}
+
+## 资源请求
+{resource_requests}
+
+## 下期展望
+{next_period_outlook}
+```
+
+**`team` 模式模板**：
+```
+# {project_name} — {period} 团队周报
+
+## 本期交付
+{delivered_features}
+
+## 进行中
+{in_progress_items}
+
+## 阻塞项
+{blockers}
+
+## 速度趋势
+- 提交速率：{commits_per_week}/周（{velocity_trend}）
+- 变更最多的模块：{top_module}
+
+## 技术债务动态
+- 新增债务：{new_debt_count} 项
+- 已偿还：{resolved_debt_count} 项
+- 当前债务比率：{debt_ratio}%
+
+## 团队表彰
+{team_shoutouts}
+```
+
+**`investor` 模式模板**：
+```
+# {project_name} — {period} 产品动量报告
+
+## 产品亮点
+{product_highlights}
+
+## 用户影响
+{user_impact_stories}
+
+## 技术壁垒
+- 核心技术优势：{tech_moat}
+- 本期技术投入：{tech_investment}
+
+## 团队动态
+- 活跃贡献者：{active_contributors} 人
+- 团队产出趋势：{team_output_trend}
+
+## 展望
+{forward_looking}
+```
+
+**`briefing` 模式模板**：
+```
+# 晨报 — {date}
+
+⚠️ 告警：{overnight_alerts}
+📦 依赖更新：{dep_updates}
+📊 关键指标：提交 {total_commits} | 贡献者 {active_contributors} | 债务比率 {debt_ratio}%
+🎯 今日重点：{today_focus}
+```
+
 ### 步骤 7：收集草稿
 
 两位 writer 完成后各自向 team lead 发送草稿。Team lead 确认收到全部草稿后，进入阶段二。
+
+---
+
+## 阶段 2.5：历史趋势对比
+
+当 `--period` 覆盖多周或多月时（`2w`、`1m`、`1q`），team lead 指示 data-gatherer 在步骤 3 的数据包中额外提供**历史趋势对比数据**。
+
+### 对比逻辑
+
+| `--period` 值 | 当前期 | 对比期 | 说明 |
+|---------------|--------|--------|------|
+| `1w` | 本周 | 上周 | 仅当用户显式请求趋势时启用 |
+| `2w` | 最近 2 周 | 前 2 周 | 自动启用 |
+| `1m` | 最近 1 个月 | 上个月 | 自动启用 |
+| `1q` | 最近 1 个季度 | 上个季度 | 自动启用 |
+
+### 追踪指标
+
+Data-gatherer 对以下关键指标计算"本期 vs 上期"变化：
+
+| 指标 | 数据来源 | 趋势标记 |
+|------|---------|---------|
+| **提交速率** (commits/week) | `git log` 按周聚合 | ↑ 提升 / ↓ 下降 / → 稳定 |
+| **活跃贡献者数** | `git shortlog` 去重作者 | ↑ / ↓ / → |
+| **代码净增长** (net lines changed) | `git diff --stat` | ↑ / ↓ / → |
+| **技术债务比率** | `techdebt.json` 的 `debt_ratio` 字段 | ↑ 恶化 / ↓ 改善 / → 稳定 |
+| **测试覆盖率变化** | `velocity.json` 的 `test_coverage` 字段 | ↑ 改善 / ↓ 退步 / → 稳定 |
+| **依赖漏洞数** | `deps-health.json` 的 `vulnerabilities` 字段 | ↑ 恶化 / ↓ 改善 / → 稳定 |
+
+趋势判定规则：变化幅度 ≤ 5% 标记为 → 稳定；> 5% 按方向标记 ↑ 或 ↓。
+
+### Writer 使用趋势数据
+
+Writer 在撰写报告时，应在相关章节插入趋势对比表：
+
+```
+### 本期 vs 上期
+
+| 指标           | 上期     | 本期     | 趋势 |
+|---------------|---------|---------|------|
+| 提交速率       | {prev_commits_per_week} | {curr_commits_per_week} | {trend_indicator} |
+| 活跃贡献者     | {prev_contributors}     | {curr_contributors}     | {trend_indicator} |
+| 技术债务比率   | {prev_debt_ratio}       | {curr_debt_ratio}       | {trend_indicator} |
+| 测试覆盖率     | {prev_test_coverage}    | {curr_test_coverage}    | {trend_indicator} |
+```
+
+对于 `board` 和 `investor` 模式，趋势数据应转化为自然语言叙述（如"提交活跃度环比提升 23%，团队产出持续增长"），而非直接展示表格。
 
 ---
 
@@ -286,6 +456,37 @@ AskUserQuestion 确认：
 - `file`：保存到项目的 `docs/reports/` 目录
   - 文件名格式：`{mode}-report-YYYY-MM-DD.md`（如 `team-report-2026-03-21.md`）
   - 如果目录不存在，创建之
+
+### 步骤 13.5：自动分发建议
+
+根据 `--format` 参数，在输出报告后附加分发就绪内容：
+
+**`--format=email` 时**：
+- 生成可直接复制粘贴的邮件内容块，包含：
+  - **Subject 行**：`[{mode}报告] {project_name} — {period} ({date})`
+  - **Body**：报告正文（email 格式）
+  - **收件人建议**：根据 `--mode` 推荐收件人角色（如 board → C-level + VP Engineering，team → 全体工程师）
+- 用 `---BEGIN EMAIL---` 和 `---END EMAIL---` 标记，方便用户整段复制
+
+**`--format=slack` 时**：
+- 生成 Slack 消息块，可直接粘贴到 Slack 频道：
+  - 使用 Slack mrkdwn 语法（`*bold*`、`_italic_`、`>` 引用）
+  - 包含 emoji 状态标记
+  - 建议发送频道：根据 `--mode` 推荐（如 board → `#leadership`，team → `#engineering`，briefing → `#standup`）
+- 如果报告保存为文件（`--output=file`），在消息末尾附文件路径供引用
+
+**`--format=ppt-outline` 时**：
+- 生成逐页 PPT 大纲，每页包含：
+  - `## Slide {N}: {页面标题}`
+  - 3 个要点（每点 ≤ 15 字）
+  - `> Speaker Notes:` 展开说明（演讲者备注，2-3 句话）
+- 附加演示建议：
+  - 预计演示时长（根据页数估算，每页约 2 分钟）
+  - 建议重点停留的页面
+  - Q&A 环节预测问题（基于报告中的风险项和数据异常点）
+
+**`--format=markdown` 时**（默认）：
+- 无额外分发建议，直接输出完整 Markdown 报告
 
 ### 步骤 14：最终总结
 

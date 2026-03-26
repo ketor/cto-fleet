@@ -199,6 +199,17 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | `/team-observability` | 可观测性设计 | "设置监控和告警" | "set up monitoring and alerts" |
 | `/team-runbook` | 运维手册生成 | "写 on-call 手册" | "generate on-call runbooks" |
 | `/team-cto-briefing` | CTO 晨会简报 | "给我一份晨会简报" | "morning briefing" |
+| `/team-test` | 测试策略分析 | "补充单元测试" | "improve test coverage" |
+| `/team-cicd` | CI/CD 流水线优化 | "构建太慢了" | "optimize build pipeline" |
+| `/team-schema` | 数据库 Schema 设计 | "设计用户表结构" | "design user table schema" |
+| `/team-chaos` | 混沌工程 | "测试服务韧性" | "chaos test the payment service" |
+| `/team-accessibility` | 无障碍审计 | "检查 WCAG 合规" | "WCAG compliance audit" |
+| `/team-dora` | DORA 指标分析 | "看看部署频率" | "measure deployment frequency" |
+| `/team-feature-flag` | Feature Flag 管理 | "清理过期开关" | "clean up stale feature flags" |
+| `/team-contract-test` | API 契约测试 | "检查 API 兼容性" | "check API backward compatibility" |
+| `/team-i18n` | 国际化审计 | "检查硬编码字符串" | "find hardcoded strings" |
+| `/team-threat-model` | 威胁建模 | "做 STRIDE 分析" | "STRIDE threat analysis" |
+| `/team-governance` | AI/Agent 治理 | "审计 Agent 权限" | "audit agent permissions" |
 
 ---
 
@@ -253,7 +264,7 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 ## 核心原则
 
-- **零记忆负担**：用户不需要记住 28 个 skill 名称，自然语言描述任务即可
+- **零记忆负担**：用户不需要记住 40 个 skill 名称，自然语言描述任务即可
 - **保守路由**：不确定时宁可多问一次，不误导到错误的 skill
 - **紧急优先**：包含紧急信号的任务优先匹配 `/team-incident`
 - **参数透传**：所有用户指定的参数完整传递给目标 skill，不丢失
