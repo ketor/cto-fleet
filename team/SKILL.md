@@ -56,6 +56,10 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "分析架构""架构评估""模块关系""依赖分析" / "analyze architecture""architecture review""dependency analysis" | `/team-arch` | `[--auto] [--once] [--depth] [--focus] [--lang]` |
 | "性能优化""性能分析""慢""延迟高""OOM""内存泄漏" / "performance""optimize""slow""high latency""memory leak" | `/team-perf` | `[--auto] [--once] [--focus] [--lang]` |
 | "安全审计""安全扫描""漏洞""安全检查""渗透""安全隐患" / "security audit""vulnerability""security scan""penetration test" | `/team-security` | `[--auto] [--once] [--scope] [--lang]` |
+| "测试策略""测试覆盖率""补测试""flaky test""测试金字塔""缺少测试" / "test strategy""test coverage""missing tests""flaky tests""test pyramid" | `/team-test` | `[--auto] [--once] [--focus=unit\|integration\|e2e\|all] [--fix] [--lang]` |
+| "威胁建模""STRIDE""DREAD""攻击面""威胁分析" / "threat model""STRIDE""DREAD""attack surface""threat analysis" | `/team-threat-model` | `[--auto] [--once] [--framework=stride\|dread\|both] [--scope] [--lang]` |
+| "无障碍""WCAG""可访问性""accessibility""ARIA""屏幕阅读器" / "accessibility""WCAG""a11y""screen reader""ARIA" | `/team-accessibility` | `[--auto] [--once] [--level=A\|AA\|AAA] [--fix] [--lang]` |
+| "契约测试""API 兼容性""breaking change""消费者驱动" / "contract test""API compatibility""breaking change""consumer-driven" | `/team-contract-test` | `[--auto] [--once] [--style=pact\|openapi\|grpc\|auto] [--scope] [--lang]` |
 
 ### 设计与方案
 
@@ -74,6 +78,8 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "发布""上线""release""版本""changelog" / "release""deploy""publish version""release notes" | `/team-release` | `[--auto] [--once] [--type] [--from] [--lang]` |
 | "监控""可观测性""告警规则""SLO""SLI""dashboard""仪表盘" / "monitoring""observability""alert rules""SLO""SLI""dashboard" | `/team-observability` | `[--auto] [--once] [--stack] [--service] [--lang]` |
 | "运维手册""runbook""on-call""值班手册""故障处理手册" / "runbook""on-call""operations manual""playbook" | `/team-runbook` | `[--auto] [--once] [--service] [--lang]` |
+| "CI/CD""流水线""pipeline""构建慢""构建失败""GitHub Actions""GitLab CI" / "CI/CD""pipeline""build slow""build failing""GitHub Actions""GitLab CI" | `/team-cicd` | `[--auto] [--once] [--platform] [--fix] [--lang]` |
+| "混沌工程""故障注入""韧性测试""chaos""resilience""blast radius" / "chaos engineering""fault injection""resilience testing""chaos""blast radius" | `/team-chaos` | `[--auto] [--once] [--target] [--dry-run] [--lang]` |
 
 ### 调研与文档
 
@@ -98,6 +104,11 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "团队健康""巴士因子""知识孤岛""人员风险""团队容量" / "team health""bus factor""knowledge silo""team capacity""people risk" | `/team-capacity` | `[--auto] [--once] [--period] [--module] [--lang]` |
 | "依赖检查""漏洞扫描""CVE""供应链安全""依赖更新""SBOM" / "dependency check""vulnerability scan""CVE""supply chain""dependency update""SBOM" | `/team-deps` | `[--auto] [--once] [--scope] [--lang]` |
 | "晨会简报""CTO简报""技术总览""综合报告""今天关注什么""项目健康" / "morning briefing""CTO briefing""tech overview""what needs attention""project health" | `/team-cto-briefing` | `[--auto] [--once] [--modules] [--skip] [--period] [--lang]` |
+| "DORA指标""部署频率""变更前置时间""工程效能""交付效率" / "DORA metrics""deployment frequency""lead time""engineering productivity""delivery efficiency" | `/team-dora` | `[--auto] [--once] [--period] [--compare] [--lang]` |
+| "feature flag""功能开关""灰度发布""flag清理""stale flag" / "feature flag""feature toggle""flag cleanup""stale flags""rollout strategy" | `/team-feature-flag` | `[--auto] [--once] [--action=audit\|cleanup\|strategy] [--provider] [--lang]` |
+| "数据库设计""schema""表结构""迁移脚本""索引优化""DDL" / "database design""schema""table structure""migration script""index optimization""DDL" | `/team-schema` | `[--auto] [--once] [--db] [--action=design\|migrate\|audit\|optimize] [--lang]` |
+| "国际化""i18n""本地化""多语言""hardcoded string""RTL" / "internationalization""i18n""localization""multi-language""hardcoded strings""RTL" | `/team-i18n` | `[--auto] [--once] [--target-locales] [--fix] [--lang]` |
+| "Agent 治理""AI 安全""prompt 注入""权限边界""OWASP Agentic" / "agent governance""AI safety""prompt injection""permission boundary""OWASP agentic" | `/team-governance` | `[--auto] [--once] [--scope] [--framework] [--lang]` |
 
 ---
 

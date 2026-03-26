@@ -4,6 +4,17 @@ description: 启动一个迁移规划团队（scanner/planner×2/validator），
 argument-hint: --from=源技术 --to=目标技术 [--dry-run (仅生成计划不执行)] [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--lang=zh|en] 迁移目标描述
 ---
 
+## Preamble (run first)
+
+```bash
+_UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.
+
+---
+
 **参数解析**：从 `$ARGUMENTS` 中检测以下标志：
 - `--from=<源技术>`：源技术栈（必需，如 `--from=webpack`、`--from=REST`、`--from=MySQL`）
 - `--to=<目标技术>`：目标技术栈（必需，如 `--to=vite`、`--to=gRPC`、`--to=PostgreSQL`）

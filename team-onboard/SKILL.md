@@ -4,6 +4,17 @@ description: 启动一个知识库构建团队（scanner/analyst×2/reviewer/wri
 argument-hint: [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--target=newcomer|senior|all] [--lang=zh|en] 项目路径或描述
 ---
 
+## Preamble (run first)
+
+```bash
+_UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.
+
+---
+
 **参数解析**：从 `$ARGUMENTS` 中检测以下标志：
 - `--auto`：完全自主模式（不询问用户任何问题，全程自动决策）
 - `--once`：单轮确认模式（将所有需要确认的问题合并为一轮提问，确认后全程自动执行）
