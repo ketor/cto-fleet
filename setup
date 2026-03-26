@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# cto-fleet setup — register skills with Claude Code
+# Creates symlinks in ~/.claude/skills/ pointing to skill subdirectories.
+#
+# Usage:
+#   ./setup              # install to ~/.claude/skills/
+#   ./setup --local      # install to ./.claude/skills/ (project-local)
+set -e
+
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_NAME="$(basename "$REPO_DIR")"
+
+# Detect parent directory — if installed inside ~/.claude/skills/, use relative symlinks
+PARENT_DIR="$(dirname "$REPO_DIR")"
+USE_RELATIVE=0
+if [ "$(basename "$PARENT_DIR")" = "skills" ]; then
+  USE_RELATIVE=1
+  SKILLS_DIR="$PARENT_DIR"
+fi
+
+# Parse flags
+[ "$USE_RELATIVE" -eq 0 ] && SKILLS_DIR="$HOME/.claude/skills"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --local)
+      SKILLS_DIR="$(pwd)/.claude/skills"
+      USE_RELATIVE=0
+      mkdir -p "$SKILLS_DIR"
+      shift
+      ;;
+    *) shift ;;
+  esac
+done
+
+mkdir -p "$SKILLS_DIR"
+
+# Scan for skill subdirectories (those containing SKILL.md)
+linked=()
+for skill_dir in "$REPO_DIR"/*/; do
+  [ -f "$skill_dir/SKILL.md" ] || continue
+  skill_name="$(basename "$skill_dir")"
+
+  target="$SKILLS_DIR/$skill_name"
+
+  # Build link target — relative (cto-fleet/xxx) or absolute
+  if [ "$USE_RELATIVE" -eq 1 ]; then
+    link_target="$REPO_NAME/$skill_name"
+  else
+    link_target="$REPO_DIR/$skill_name"
+  fi
+
+  # Create or update symlink; skip if a real file/directory exists (not ours)
+  if [ -L "$target" ] || [ ! -e "$target" ]; then
+    ln -snf "$link_target" "$target"
+    linked+=("$skill_name")
+  else
+    echo "  skip: $skill_name (real directory exists, not a symlink)"
+  fi
+done
+
+echo "cto-fleet ready. Linked ${#linked[@]} skills:"
+for s in "${linked[@]}"; do
+  if [ "$USE_RELATIVE" -eq 1 ]; then
+    echo "  $s -> $REPO_NAME/$s"
+  else
+    echo "  $s -> $REPO_DIR/$s"
+  fi
+done
