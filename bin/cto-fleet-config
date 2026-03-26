@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# cto-fleet-config — simple YAML config reader/writer
+#
+# Usage:
+#   cto-fleet-config get <key>
+#   cto-fleet-config set <key> <value>
+#   cto-fleet-config list
+set -euo pipefail
+
+CONFIG_FILE="${CTO_FLEET_STATE_DIR:-$HOME/.cto-fleet}/config.yaml"
+
+ensure_config() {
+  local dir
+  dir="$(dirname "$CONFIG_FILE")"
+  mkdir -p "$dir"
+  [ -f "$CONFIG_FILE" ] || touch "$CONFIG_FILE"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  get)
+    key="${2:-}"
+    [ -z "$key" ] && exit 1
+    [ -f "$CONFIG_FILE" ] || exit 0
+    awk -v k="$key" '$1 == k":" {print $2}' "$CONFIG_FILE"
+    ;;
+  set)
+    key="${2:-}"
+    value="${3:-}"
+    [ -z "$key" ] && { echo "Usage: cto-fleet-config set <key> <value>" >&2; exit 1; }
+    ensure_config
+    if grep -q "^${key}:" "$CONFIG_FILE" 2>/dev/null; then
+      sed -i "s/^${key}:.*/${key}: ${value}/" "$CONFIG_FILE"
+    else
+      echo "${key}: ${value}" >> "$CONFIG_FILE"
+    fi
+    ;;
+  list)
+    [ -f "$CONFIG_FILE" ] && cat "$CONFIG_FILE" || true
+    ;;
+  *)
+    echo "Usage: cto-fleet-config {get|set|list}" >&2
+    exit 1
+    ;;
+esac
