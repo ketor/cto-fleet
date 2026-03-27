@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.6.0] - 2026-03-28
+
+### Added
+- **HANDOFF.md** — File-based handoff specification for multi-agent context management. Defines the Write-to-file + SendMessage-path-only pattern that reduces team lead context by 50-60%
+- **RFC-2026-001** — Complete RFC document for File-Based Handoff design (`docs/rfc/rfc-2026-001-file-based-handoff.md`, 951 lines)
+- **Design review report** — Structured evaluation: Conditionally Approved 7.5/10, 25 challenger challenges, 4 Major improvements integrated (`docs/rfc/design-review-report-20260328-170000.md`)
+- `bin/sync-preamble` handoff section sync — detects `<!-- HANDOFF_SECTION_START/END -->` markers, inserts/updates handoff section in SKILL.md files that use TeamCreate
+
+### Changed
+- **team-review/SKILL.md** — Pilot: agents write reports to `/tmp/{team-name}/` files, SendMessage sends path + ≤500 char summary, team lead forwards paths not content, ⚡必须Read markers at key decision points
+- **team-dev/SKILL.md** — Pilot: architect outputs, group meeting materials, reviewer reports all use file-based handoff with compliance checking
+- **team-security/SKILL.md** — Pilot: scanner reports, auditor findings, analyst unified vulnerability list, reporter materials all use file-based handoff
+- `bin/sync-preamble` — Extended from preamble-only sync to also handle handoff section synchronization across skills
+
+## [1.5.0] - 2026-03-28
+
+### Changed
+- Version bump (preparation for File-Based Handoff implementation)
+
 ## [1.4.0] - 2026-03-27
 
 ### Security

@@ -40,6 +40,28 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 使用 TeamCreate 创建 team（名称格式 `team-security-{YYYYMMDD-HHmmss}`，如 `team-security-20260308-143022`，避免多次调用冲突），你作为 team lead 按以下流程协调。
 
+## 文件交接规范
+
+本 skill 使用**文件交接模式**管理 agent 间通信，防止上下文溢出。
+
+**团队工作目录**：Team lead 在 TeamCreate 后立即执行 `mkdir -p /tmp/{team-name} && chmod 700 /tmp/{team-name}`，将路径传入每个 agent 的 prompt。
+
+**所有 agent 必须遵守**：
+1. **写入文件**：将完整报告写入 `/tmp/{team-name}/{role}-{context}.md`（≤2000 行，超大则拆分为 summary + details 文件）
+2. **发送引用**：SendMessage 仅发送文件路径 + ≤500 字符摘要（格式见下方模板）
+3. **按需读取**：接收方用 Read 工具读取文件，发送方不内联完整内容
+4. **路径转发**：Team lead 转发报告时只发路径+摘要，不 Read 后再 SendMessage
+
+**遵从性校验**：Team lead 收到 agent 消息时，如果消息超过 1000 字符且不包含 `/tmp/team-` 前缀的文件路径，要求该 agent 将内容写入文件后重新发送路径+摘要。
+
+**⚡必须 Read 的节点**：在以下决策节点，Team lead 必须 Read 文件而非仅依赖摘要：
+- 合并双路分析报告时
+- 判断是否达标/继续迭代时
+- 向用户展示关键报告时
+- 生成最终报告时
+
+**目录清理**：收尾阶段 TeamDelete 前执行 `rm -rf /tmp/{team-name}`。
+
 ## 流程概览
 
 ```
@@ -178,18 +200,18 @@ Team lead 分析项目和参数：
 | deps | SCA | 依赖组件 CVE |
 | infra | Config Audit | 基础设施配置缺陷 |
 
-4. 汇总输出**自动化扫描报告**发送给 team lead
+4. 将完整自动化扫描报告写入 `/tmp/{team-name}/scanner-report.md`，通过 SendMessage 向 team lead 发送文件路径和≤500 字符摘要
 5. Scanner 完成后关闭（不参与后续阶段）
 
 **双 auditor 同时阅读项目**：
 - 阅读项目结构（目录布局、入口文件、配置文件）
 - 理解技术栈、框架和安全机制
 - 梳理数据流（从用户输入到数据存储的完整链路）
-- 各自输出项目安全概况给 team lead
+- 各自将项目安全概况写入 `/tmp/{team-name}/{role}-project-overview.md`，通过 SendMessage 向 team lead 发送文件路径和≤500 字符摘要
 
 ### 步骤 4：分发 scanner 报告
 
-Team lead 收到 scanner 报告后，将自动化扫描结果分发给两位 auditor，作为手工审计的参考数据。
+Team lead 收到 scanner 报告文件路径后，将该路径转发给两位 auditor（不 Read 文件内容），作为手工审计的参考数据。
 
 Auditor 在审计时必须参考 scanner 结果——例如 scanner 发现依赖中存在已知 CVE，auditor-2 在数据保护维度应当纳入评估。
 
@@ -240,10 +262,10 @@ Auditor 在审计时必须参考 scanner 结果——例如 scanner 发现依赖
 
 ### 步骤 6：启动 analyst
 
-两位 auditor 审计完成后，启动 analyst。Team lead 将以下材料发送给 analyst：
-- Scanner 自动化扫描报告
-- Auditor-1 审计报告
-- Auditor-2 审计报告
+两位 auditor 审计完成后，启动 analyst。Team lead 将以下材料的文件路径转发给 analyst（不内联内容）：
+- Scanner 自动化扫描报告路径
+- Auditor-1 审计报告路径
+- Auditor-2 审计报告路径
 - 项目安全边界信息
 
 ### 步骤 7：合并去重与分组
@@ -282,7 +304,7 @@ Analyst 执行合并分析：
 - 统一漏洞清单中 Critical 漏洞超过 5 个 → **不可跳过，必须暂停问用户**（熔断机制）
 - 向用户展示 Critical 漏洞列表，确认是否继续生成完整报告
 
-**无熔断触发**时，analyst 输出**统一漏洞清单**：
+**无熔断触发**时，analyst 将统一漏洞清单写入 `/tmp/{team-name}/analyst-unified-vulns.md`，通过 SendMessage 向 team lead 发送文件路径和≤500 字符摘要：
 
 ```
 ## 统一漏洞清单
@@ -327,8 +349,8 @@ Team lead 根据统一漏洞清单计算各维度安全评分：
 
 ### 步骤 10：启动 reporter
 
-Team lead 将以下材料发送给 reporter：
-- 统一漏洞清单
+Team lead 将以下材料的文件路径转发给 reporter（不内联内容）：
+- 统一漏洞清单路径
 - 各维度安全评分
 - 项目技术栈和安全边界信息
 - 输出语言（`--lang`）
@@ -486,7 +508,7 @@ Team lead 根据审计结果向用户建议后续动作：
 
 ### 步骤 14：清理
 
-关闭所有 teammate，用 TeamDelete 清理 team。
+关闭所有 teammate，执行 `rm -rf /tmp/{team-name}` 清理工作目录，用 TeamDelete 清理 team。
 
 ---
 

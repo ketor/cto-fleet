@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# sync-preamble — synchronize preamble across all SKILL.md files
+# sync-preamble — synchronize preamble and handoff section across all SKILL.md files
 #
 # Reads the canonical preamble from PREAMBLE.md and ensures all SKILL.md
 # files in skill subdirectories have the exact same preamble block.
+# Also checks/inserts the handoff section from HANDOFF.md into SKILL.md
+# files that reference TeamCreate.
 #
 # Usage:
 #   bin/sync-preamble              # check mode (default, report only)
@@ -201,12 +203,158 @@ $line"
   fi
 done
 
+# ─── Handoff section sync ─────────────────────────────────────
+HANDOFF_SOURCE="$CTO_FLEET_DIR/HANDOFF.md"
+HANDOFF_START="<!-- HANDOFF_SECTION_START -->"
+HANDOFF_END="<!-- HANDOFF_SECTION_END -->"
+
+handoff_ok=0
+handoff_missing=0
+handoff_outdated=0
+handoff_skipped=0
+handoff_error=0
+
+# Extract canonical handoff section from HANDOFF.md
+HANDOFF_SECTION=""
+if [ -f "$HANDOFF_SOURCE" ]; then
+  in_hs=0
+  while IFS= read -r line; do
+    if [ "$line" = "$HANDOFF_START" ]; then
+      in_hs=1
+      HANDOFF_SECTION="$line"
+      continue
+    fi
+    if [ $in_hs -eq 1 ]; then
+      HANDOFF_SECTION="$HANDOFF_SECTION
+$line"
+      [ "$line" = "$HANDOFF_END" ] && break
+    fi
+  done < "$HANDOFF_SOURCE"
+fi
+
+if [ -z "$HANDOFF_SECTION" ]; then
+  echo ""
+  echo "Handoff: skipped (HANDOFF.md not found or missing HANDOFF_SECTION markers)"
+else
+  echo ""
+  echo "Handoff section check:"
+
+  for skill_file in "${skills[@]}"; do
+    skill_name="$(basename "$(dirname "$skill_file")")"
+
+    # Check if this SKILL.md references TeamCreate
+    if ! grep -q 'TeamCreate' "$skill_file" 2>/dev/null; then
+      handoff_skipped=$((handoff_skipped + 1))
+      [ $VERBOSE -eq 1 ] && echo "  - $skill_name/SKILL.md: no TeamCreate, skipped"
+      continue
+    fi
+
+    # Check if handoff section exists
+    has_start=0
+    has_end=0
+    grep -q "$HANDOFF_START" "$skill_file" 2>/dev/null && has_start=1
+    grep -q "$HANDOFF_END" "$skill_file" 2>/dev/null && has_end=1
+
+    if [ $has_start -eq 1 ] && [ $has_end -eq 1 ]; then
+      # Extract existing handoff section for comparison
+      existing_hs=""
+      in_ehs=0
+      while IFS= read -r line; do
+        if [ "$line" = "$HANDOFF_START" ]; then
+          in_ehs=1
+          existing_hs="$line"
+          continue
+        fi
+        if [ $in_ehs -eq 1 ]; then
+          existing_hs="$existing_hs
+$line"
+          [ "$line" = "$HANDOFF_END" ] && break
+        fi
+      done < "$skill_file"
+
+      if [ "$existing_hs" = "$HANDOFF_SECTION" ]; then
+        handoff_ok=$((handoff_ok + 1))
+        [ $VERBOSE -eq 1 ] && echo "  ✓ $skill_name/SKILL.md: handoff OK"
+      else
+        handoff_outdated=$((handoff_outdated + 1))
+        echo "  ✗ $skill_name/SKILL.md: handoff OUTDATED"
+        if [ $FIX -eq 1 ]; then
+          if [ $DRY_RUN -eq 1 ]; then
+            echo "    → dry-run: would update handoff section"
+          else
+            # Replace existing handoff section
+            hs_start_line=0
+            hs_end_line=0
+            hs_line_num=0
+            while IFS= read -r line; do
+              hs_line_num=$((hs_line_num + 1))
+              [ "$line" = "$HANDOFF_START" ] && hs_start_line=$hs_line_num
+              if [ "$line" = "$HANDOFF_END" ]; then
+                hs_end_line=$hs_line_num
+                break
+              fi
+            done < "$skill_file"
+
+            if [ $hs_start_line -gt 0 ] && [ $hs_end_line -gt 0 ]; then
+              head -n "$((hs_start_line - 1))" "$skill_file" > "$skill_file.tmp"
+              echo "$HANDOFF_SECTION" >> "$skill_file.tmp"
+              tail -n +"$((hs_end_line + 1))" "$skill_file" >> "$skill_file.tmp"
+              mv "$skill_file.tmp" "$skill_file"
+              echo "    → updated handoff section"
+            else
+              echo "    → error: could not locate handoff markers" >&2
+              handoff_error=$((handoff_error + 1))
+            fi
+          fi
+        fi
+      fi
+    else
+      # Handoff section missing — need to insert
+      handoff_missing=$((handoff_missing + 1))
+      echo "  ✗ $skill_name/SKILL.md: handoff MISSING"
+      if [ $FIX -eq 1 ]; then
+        if [ $DRY_RUN -eq 1 ]; then
+          echo "    → dry-run: would insert handoff section after TeamCreate line"
+        else
+          # Find the line number of the first line containing TeamCreate
+          tc_line=0
+          tc_line_num=0
+          while IFS= read -r line; do
+            tc_line_num=$((tc_line_num + 1))
+            if echo "$line" | grep -q 'TeamCreate'; then
+              tc_line=$tc_line_num
+              break
+            fi
+          done < "$skill_file"
+
+          if [ $tc_line -gt 0 ]; then
+            head -n "$tc_line" "$skill_file" > "$skill_file.tmp"
+            echo "" >> "$skill_file.tmp"
+            echo "$HANDOFF_SECTION" >> "$skill_file.tmp"
+            echo "" >> "$skill_file.tmp"
+            tail -n +"$((tc_line + 1))" "$skill_file" >> "$skill_file.tmp"
+            mv "$skill_file.tmp" "$skill_file"
+            echo "    → inserted handoff section after TeamCreate"
+          else
+            echo "    → error: could not find TeamCreate line" >&2
+            handoff_error=$((handoff_error + 1))
+          fi
+        fi
+      fi
+    fi
+  done
+
+  handoff_total=$((handoff_ok + handoff_missing + handoff_outdated))
+  echo ""
+  echo "Handoff: $handoff_ok OK, $handoff_outdated outdated, $handoff_missing missing, $handoff_error errors (total: $handoff_total team skills, $handoff_skipped skipped)"
+fi
+
 # ─── Summary ──────────────────────────────────────────────────
 echo ""
 total=${#skills[@]}
-echo "Summary: $count_ok OK, $count_fix outdated, $count_missing missing, $count_error errors (total: $total)"
-if [ $FIX -eq 0 ] && [ $((count_fix + count_missing)) -gt 0 ]; then
+echo "Preamble: $count_ok OK, $count_fix outdated, $count_missing missing, $count_error errors (total: $total)"
+if [ $FIX -eq 0 ] && [ $((count_fix + count_missing + handoff_missing + handoff_outdated)) -gt 0 ]; then
   echo "Run with --fix to update, or --dry-run to preview changes."
 fi
 
-[ $((count_fix + count_missing + count_error)) -eq 0 ] && exit 0 || exit 1
+[ $((count_fix + count_missing + count_error + handoff_missing + handoff_outdated + handoff_error)) -eq 0 ] && exit 0 || exit 1
