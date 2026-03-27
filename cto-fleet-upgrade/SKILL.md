@@ -81,10 +81,12 @@ OLD_VERSION=$(cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo "unknown")
 
 ```bash
 cd "$INSTALL_DIR"
+OLD_HASH=$(git rev-parse HEAD)
 STASH_OUTPUT=$(git stash 2>&1)
 git fetch origin
 git reset --hard origin/main
 ./setup
+echo "如需回退: git reset --hard $OLD_HASH"
 ```
 If `$STASH_OUTPUT` contains "Saved working directory", warn the user: "Note: local changes were stashed. Run `git stash pop` in the skill directory to restore them."
 

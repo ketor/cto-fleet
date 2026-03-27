@@ -1,7 +1,7 @@
 ---
 name: team
-description: 智能路由——根据任务描述自动选择最合适的 team-* skill 并调用。无需记忆 29 个 skill 名称，只需 /team 你的任务。使用方式：/team [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--lang=zh|en] 任务描述
-argument-hint: [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--lang=zh|en] 任务描述
+description: 智能路由——根据任务描述自动选择最合适的 team-* skill 并调用。无需记忆所有 team-* skill 名称，只需 /team 你的任务。使用方式：/team [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--dry-run (只分析不执行，输出推荐方案)] [--lang=zh|en] 任务描述
+argument-hint: [--auto (全自动，不询问)] [--once (仅确认一次后自动执行)] [--dry-run (只分析不执行)] [--lang=zh|en] 任务描述
 ---
 
 ## Preamble (run first)
@@ -17,7 +17,8 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 **参数解析**：从 `$ARGUMENTS` 中检测以下标志：
 - `--auto`：传递给目标 skill 的完全自主模式标志（不询问用户任何问题）
-- `--once`：传递给目标 skill 的单轮确认模式标志（所有问题合并为一轮提问，之后全程自动执行）
+- `--once`：路由层保留一次交互机会（如单 skill vs pipeline 选择），确认后将 `--once` 传递给目标 skill，后续全程自动执行
+- `--dry-run`：**只分析不执行**——完成路由分析后，输出所有推荐方案（单 skill、pipeline 组合、替代方案），但不调用任何 skill。用于查询"我的任务应该用哪些 team"
 - `--lang=zh|en`：传递给目标 skill 的输出语言标志
 
 解析后保留完整的任务描述（含未识别的参数，如 `--focus`、`--depth` 等，一并传递给目标 skill）。
@@ -110,6 +111,14 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "国际化""i18n""本地化""多语言""hardcoded string""RTL" / "internationalization""i18n""localization""multi-language""hardcoded strings""RTL" | `/team-i18n` | `[--auto] [--once] [--target-locales] [--fix] [--lang]` |
 | "Agent 治理""AI 安全""prompt 注入""权限边界""OWASP Agentic" / "agent governance""AI safety""prompt injection""permission boundary""OWASP agentic" | `/team-governance` | `[--auto] [--once] [--scope] [--framework] [--lang]` |
 
+### 工具 / 运维
+
+| 意图信号（中/英） | 目标 Skill | 传递参数 |
+|---------|-----------|---------|
+| "清理 team 目录""cleanup teams""删除残留 team" / "cleanup teams""remove stale teams" | `/team-cleanup` | `[--all] [--pattern] [--dry-run]` |
+| "关闭 agent""关掉 teammates""shutdown team" / "close agents""shutdown team" | `/team-close` | `[--force]` |
+| "流水线""按顺序执行""接力执行" / "pipeline""run in sequence""chain skills" | `/team-pipeline` | `--steps=... [--auto] [--once] [--lang]` |
+
 ---
 
 ## 路由执行步骤
@@ -139,18 +148,79 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 ### 步骤 3：确认与调用
 
+**`--dry-run` 模式**：如果检测到 `--dry-run` 标志，完成步骤 1-2 的意图识别和匹配后，**不调用任何 skill**，而是输出结构化的推荐方案报告：
+
+```
+## 🔍 路由分析报告（dry-run）
+
+**任务**：[用户的任务描述]
+
+### 方案 A：单 Skill
+- **推荐**：`/team-xxx`
+- **匹配理由**：[为什么匹配]
+- **适用场景**：[什么时候选这个]
+- **调用示例**：`/team --once xxx 任务描述`
+
+### 方案 B：Pipeline（如匹配到组合模式）
+- **推荐**：`/team-pipeline --steps=team-xxx,team-yyy`
+- **步骤链**：team-xxx（[做什么]）→ team-yyy（[做什么]）
+- **适用场景**：[什么时候选这个]
+- **调用示例**：`/team --once 先xxx再yyy 任务描述`
+
+### 方案 C：替代 Pipeline（如有多种组合方式）
+- **推荐**：`/team-pipeline --steps=team-aaa,team-bbb,team-ccc`
+- **步骤链**：...
+- **适用场景**：[更全面/更保守的方案]
+
+### 其他可能相关的 Skill
+- `/team-zzz` — [一句话说明相关性]
+```
+
+输出报告后，用 **AskUserQuestion** 询问用户是否要执行其中某个方案（将每个方案作为一个选项，附带简要描述）。如果用户选择了某个方案，则**自动调用**对应的 skill 或 pipeline 执行用户原始任务（去掉 `--dry-run`，保留其他参数）。如果用户选择不执行，则结束。
+
+---
+
 **单一匹配**（置信度高）：
+
+首先检测任务描述是否匹配"组合任务处理"表中的某个组合模式：
+
+**情况 A：检测到组合模式**（如"开发完要审查""安全审计后修复""先调研再写方案"等）：
+- 在 AskUserQuestion 中同时提供**单 skill** 和 **pipeline 组合**两种选项：
+  - 选项1：单 skill（`/team-xxx`）— 只执行核心意图，灵活、快捷
+  - 选项2：pipeline 组合（`/team-pipeline --steps=xxx,yyy`）— 按序自动执行多步，coverage 更完整
+  - 用 `preview` 字段展示 pipeline 的步骤链（如 `team-security → team-refactor`）
+- 用户选择单 skill → 走正常路由（调用 Skill 工具）
+- 用户选择 pipeline → 调用 `team-pipeline --steps=xxx,yyy 任务描述`
+- **`--auto` 标志**：跳过询问，自动选择 pipeline 组合（更全面）
+- **`--once` 标志**：**仍然询问**（单 skill vs pipeline），这是 `--once` 模式下**唯一的一次交互**。用户确认后，将 `--once` 传递给目标 skill，后续全程自动执行
+
+**情况 B：未检测到组合模式**（单一明确意图）：
 - 向用户简要说明匹配结果：`"根据任务描述，我将使用 /team-xxx 来处理。"`
-- 用 AskUserQuestion 确认（提供匹配的 skill 和 2 个最近的候选）
+- **如果用户传递了 `--auto` 标志**：跳过确认，直接调用目标 skill
+- **如果用户传递了 `--once` 标志**：跳过确认，直接调用目标 skill（单意图无需选择，节省唯一的一次交互机会）
+- **否则**：用 AskUserQuestion 确认（提供匹配的 skill 和 2 个最近的候选）
 - 确认后，使用 **Skill 工具** 调用目标 skill，将完整参数传递
+
+**AskUserQuestion 示例**（组合模式场景，含 preview）：
+```
+question: "检测到组合意图：开发 + 审查代码。如何执行？"
+options:
+  - label: "team-dev（仅开发）"
+    description: "完整研发团队，实现功能后由你决定后续步骤"
+    preview: "team-dev\n└─ architect×2 + coder×2 + reviewer\n   完成后你可手动触发下一步"
+  - label: "team-dev → team-review（开发+审查 pipeline）"
+    description: "自动接力：开发完成后立即进入代码审查，全程无需手动续接"
+    preview: "team-pipeline --steps=team-dev,team-review\n├─ [1/2] team-dev   开发实现\n└─ [2/2] team-review 代码审查\n   上一步输出自动注入下一步上下文"
+```
 
 **多个候选**（置信度中等）：
 - 列出 2-3 个候选 skill 及匹配理由
+- 如其中涉及组合意图，也附上对应的 pipeline 选项
 - 用 AskUserQuestion 让用户选择
 - 确认后调用
 
 **无匹配**（置信度低）：
-- 展示全部 29 个 skill 的简表
+- 展示全部 team-* skill 的简表
 - 用 AskUserQuestion 让用户选择
 
 ### 步骤 4：调用目标 Skill
@@ -210,12 +280,19 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | `/team-i18n` | 国际化审计 | "检查硬编码字符串" | "find hardcoded strings" |
 | `/team-threat-model` | 威胁建模 | "做 STRIDE 分析" | "STRIDE threat analysis" |
 | `/team-governance` | AI/Agent 治理 | "审计 Agent 权限" | "audit agent permissions" |
+| `/team-cleanup` | 清理残留 team 目录 | "清理 team 目录" | "cleanup stale teams" |
+| `/team-close` | 关闭活跃 teammate | "关闭所有 agent" | "shutdown team" |
+| `/team-pipeline` | 多 skill 接力执行 | "按顺序执行安全+重构" | "pipeline security then refactor" |
 
 ---
 
 ## 组合任务处理
 
-当任务描述包含多个阶段时，路由建议分步执行：
+> **💡 提示**：如果任务需要多个 skill 依次执行，可以直接使用 `/team-pipeline --steps=skill1,skill2 任务描述` 实现自动接力，无需手动续接。
+
+当任务描述包含多个阶段时，路由建议分步执行。优先匹配常见组合。
+
+### 常见组合（优先匹配）
 
 | 组合模式 | 推荐顺序 |
 |---------|---------|
@@ -233,6 +310,14 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "技术债务 + Sprint规划" | `/team-techdebt` → `/team-sprint` |
 | "依赖检查 + 合规审计" | `/team-deps` → `/team-compliance` |
 | "监控设计 + 运维手册" | `/team-observability` → `/team-runbook` |
+| "测试策略 + CI/CD" | `/team-test` → `/team-cicd` |
+
+### 完整组合参考
+
+以下为扩展组合，常见组合未命中时再匹配：
+
+| 组合模式 | 推荐顺序 |
+|---------|---------|
 | "故障响应 + 运维手册更新" | `/team-incident` → `/team-runbook --update` |
 | "架构决策 + 迁移规划" | `/team-adr` → `/team-migration` |
 | "供应商评估 + 架构决策" | `/team-vendor` → `/team-adr` |
@@ -243,7 +328,6 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | "Agent治理 + 合规" | `/team-governance` → `/team-compliance` |
 | "功能开关 + 发布" | `/team-feature-flag` → `/team-release` |
 | "功能开关 + 可观测性" | `/team-feature-flag` → `/team-observability` |
-| "测试策略 + CI/CD" | `/team-test` → `/team-cicd` |
 | "测试策略 + 重构" | `/team-test` → `/team-refactor` |
 | "无障碍 + 开发修复" | `/team-accessibility` → `/team-dev` |
 | "契约测试 + 迁移" | `/team-contract-test` → `/team-migration` |
@@ -260,11 +344,24 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 路由只执行第一个 skill。第一个 skill 完成后，其跨团队衔接建议会自然引导到下一个。
 
+### 接力提示（Skill 完成后）
+
+当目标 skill 完成后，如果初始任务描述匹配了**组合任务处理**表中的某个模式，自动向用户提示：
+
+> ✅ `/team-xxx` 已完成。根据你的任务，推荐下一步：
+> - `/team yyy 任务描述` — 继续执行 [组合模式的第二步]
+>
+> 是否自动启动下一步？（输入 `y` 或直接继续提问即可）
+
+**如果用户传递了 `--auto` 标志**：跳过询问，自动调用下一步 skill。
+**如果用户传递了 `--once` 标志**：询问一次，确认后自动执行。
+**否则**：仅提示，等待用户手动触发。
+
 ---
 
 ## 核心原则
 
-- **零记忆负担**：用户不需要记住 40 个 skill 名称，自然语言描述任务即可
+- **零记忆负担**：用户不需要记住所有 team-* skill 名称，自然语言描述任务即可
 - **保守路由**：不确定时宁可多问一次，不误导到错误的 skill
 - **紧急优先**：包含紧急信号的任务优先匹配 `/team-incident`
 - **参数透传**：所有用户指定的参数完整传递给目标 skill，不丢失

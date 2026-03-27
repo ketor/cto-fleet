@@ -50,6 +50,8 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 | `compliance` | `/team-compliance` | `compliance.json` | 合规状态 | ❌（需显式启用） |
 | `report` | `/team-report --mode=briefing` | — | 综合摘要 | ✅（始终最后运行） |
 
+> **注意**：数据文件列（如 `deps-health.json`）描述的是规划中的跨 skill 数据接口。当前版本各子 skill 直接输出到上下文，不经 JSON 文件中转。未来版本将实现结构化 JSON 中间文件以支持增量刷新和缓存。
+
 **模块依赖顺序**：
 
 ```

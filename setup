@@ -51,6 +51,12 @@ for skill_dir in "$REPO_DIR"/*/; do
 
   # Create or update symlink; skip if a real file/directory exists (not ours)
   if [ -L "$target" ] || [ ! -e "$target" ]; then
+    if [ -L "$target" ]; then
+      old_link="$(readlink "$target")"
+      if [ "$old_link" != "$link_target" ]; then
+        echo "  update: $skill_name ($old_link -> $link_target)"
+      fi
+    fi
     ln -snf "$link_target" "$target"
     linked+=("$skill_name")
   else

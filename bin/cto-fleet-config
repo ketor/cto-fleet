@@ -8,6 +8,16 @@
 set -euo pipefail
 
 CONFIG_FILE="${CTO_FLEET_STATE_DIR:-$HOME/.cto-fleet}/config.yaml"
+trap 'rm -f "$CONFIG_FILE.tmp" 2>/dev/null' EXIT
+
+# Key whitelist: only allow [a-zA-Z0-9_-]
+validate_key() {
+  local key="$1"
+  if ! printf '%s' "$key" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+    echo "Error: key must match [a-zA-Z0-9_-]+" >&2
+    return 1
+  fi
+}
 
 ensure_config() {
   local dir
@@ -25,21 +35,27 @@ case "$cmd" in
   get)
     key="${2:-}"
     [ -z "$key" ] && exit 1
-    [ -f "$CONFIG_FILE" ] || exit 0
-    awk -v k="$key" '$1 == k":" {print $2}' "$CONFIG_FILE"
+    validate_key "$key"
+    [ -f "$CONFIG_FILE" ] || exit 1
+    awk -v k="$key" '$1 == k":" {$1=""; sub(/^ /,""); gsub(/^"|"$/,""); print; found=1} END {if (!found) exit 1}' "$CONFIG_FILE"
     ;;
   set)
     key="${2:-}"
     value="${3:-}"
     [ -z "$key" ] && { echo "Usage: cto-fleet-config set <key> <value>" >&2; exit 1; }
+    validate_key "$key"
     ensure_config
-    if grep -q "^${key}:" "$CONFIG_FILE" 2>/dev/null; then
-      # Use awk to avoid sed injection via special characters in key/value
-      awk -v k="$key" -v v="$value" '{if ($0 ~ "^"k":") print k": "v; else print}' \
+    # Quote value if it contains YAML special characters
+    quoted_value="$value"
+    if printf '%s' "$value" | grep -qE '^[\[\{]|[:#\!\|>\*&%@`]|^(true|false|null|yes|no)$'; then
+      quoted_value="\"$value\""
+    fi
+    if grep -qF "${key}:" "$CONFIG_FILE" 2>/dev/null; then
+      awk -v k="$key" -v v="$quoted_value" '{if (index($0, k":") == 1) print k": "v; else print}' \
         "$CONFIG_FILE" > "$CONFIG_FILE.tmp" && mv "$CONFIG_FILE.tmp" "$CONFIG_FILE"
       chmod 600 "$CONFIG_FILE" 2>/dev/null || true
     else
-      echo "${key}: ${value}" >> "$CONFIG_FILE"
+      echo "${key}: ${quoted_value}" >> "$CONFIG_FILE"
     fi
     ;;
   list)

@@ -11,6 +11,7 @@
 #   bin/sync-preamble --verbose    # show per-file check results
 #   bin/sync-preamble --skills=team-dev,team-perf  # limit to specific skills
 set -euo pipefail
+trap 'rm -f "$CTO_FLEET_DIR"/*/.SKILL.md.tmp 2>/dev/null' EXIT
 
 CTO_FLEET_DIR="${CTO_FLEET_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 PREAMBLE_SOURCE="$CTO_FLEET_DIR/PREAMBLE.md"

@@ -55,11 +55,20 @@ setup
   assert_eq "set then get returns value" "myvalue" "$result"
 teardown
 
-# ─── Test: Get nonexistent key returns empty ───────────────────
+# ─── Test: Get nonexistent key returns exit 1 ─────────────────
 echo "Test: get nonexistent key"
 setup
-  result="$("$CONFIG_CMD" get nonexistent || true)"
+  "$CONFIG_CMD" set dummy dummyval  # ensure config file exists
+  result="$("$CONFIG_CMD" get nonexistent 2>/dev/null || true)"
   assert_eq "nonexistent key returns empty" "" "$result"
+TOTAL=$((TOTAL + 1))
+  if "$CONFIG_CMD" get nonexistent 2>/dev/null; then
+    FAIL=$((FAIL + 1))
+    echo "  FAIL: nonexistent key should exit 1"
+  else
+    PASS=$((PASS + 1))
+    echo "  PASS: nonexistent key exits non-zero"
+  fi
 teardown
 
 # ─── Test: Overwrite existing key ──────────────────────────────
@@ -125,6 +134,36 @@ setup
   "$CONFIG_CMD" set b 2
   result="$("$CONFIG_CMD" list | wc -l | tr -d ' ')"
   assert_eq "list shows 2 entries" "2" "$result"
+teardown
+
+# ─── Test: Value with spaces round-trip ──────────────────────
+echo "Test: value with spaces"
+setup
+  "$CONFIG_CMD" set mykey "hello world foo"
+  result="$("$CONFIG_CMD" get mykey)"
+  assert_eq "spaces in value preserved" "hello world foo" "$result"
+teardown
+
+# ─── Test: Value with YAML special characters ────────────────
+echo "Test: YAML special chars in value (colon)"
+setup
+  "$CONFIG_CMD" set mykey "host:8080"
+  result="$("$CONFIG_CMD" get mykey)"
+  assert_eq "colon in value preserved" "host:8080" "$result"
+teardown
+
+echo "Test: YAML special chars in value (hash)"
+setup
+  "$CONFIG_CMD" set mykey "color #fff"
+  result="$("$CONFIG_CMD" get mykey)"
+  assert_eq "hash in value preserved" "color #fff" "$result"
+teardown
+
+echo "Test: YAML special chars in value (exclamation)"
+setup
+  "$CONFIG_CMD" set mykey "hello!"
+  result="$("$CONFIG_CMD" get mykey)"
+  assert_eq "exclamation in value preserved" "hello!" "$result"
 teardown
 
 # ─── Summary ──────────────────────────────────────────────────

@@ -15,7 +15,7 @@ git clone git@github.com:ketor/cto-fleet.git ~/.claude/skills/cto-fleet
 
 New machine? Just clone + `./setup`. That's it.
 
-## Skill Catalog (40 skills)
+## Skill Catalog (46 skills)
 
 ### Router
 
@@ -103,6 +103,9 @@ New machine? Just clone + `./setup`. That's it.
 | Skill | Description |
 |-------|-------------|
 | `drawio` | Generate draw.io diagrams (architecture, flowchart, ER, sequence) |
+| `team-cleanup` | Clean up stale team/task directories |
+| `team-close` | Graceful shutdown of active teammates |
+| `team-pipeline` | Multi-skill sequential pipeline executor |
 | `cto-fleet-upgrade` | One-command upgrade: `git pull` + `./setup` |
 
 ## Usage
@@ -154,7 +157,7 @@ Problem → Agent B (independent) ──┘
 ├── cto-fleet/            # This repo
 │   ├── setup             # Auto-symlink installer
 │   ├── team/             # Router skill
-│   ├── team-*/           # 40 team skills
+│   ├── team-*/           # 43 team skills
 │   ├── drawio/           # Diagram generation
 │   └── cto-fleet-upgrade/
 ├── team -> cto-fleet/team
