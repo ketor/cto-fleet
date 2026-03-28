@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.8.0] - 2026-03-29
+
+### Added
+- `bin/sync-protocols` — Registry-driven protocol sync engine replacing hard-coded `bin/sync-preamble`. Manages 4 protocol sections across all SKILL.md files via `protocols/registry.conf`. Supports `--fix`, `--dry-run`, `--verbose`, `--skills=`, `--sections=`, `--remove=`, `--migrate-preamble`
+- `protocols/` directory — Canonical source files for shared protocols: `registry.conf`, `preamble.md`, `consensus.md`, `error-handling.md`
+- `tests/test_sync_protocols.sh` — 45 unit tests covering registry parsing, gate/exclude conditions, all anchor types, multi-section processing, preamble migration, edge cases
+- `docs/plans/2026-03-29-protocol-extraction-design.md` — Design document for protocol extraction approach
+
+### Changed
+- **All 46 SKILL.md files** — Preamble migrated from legacy heading+`---` format to `<!-- PREAMBLE_SECTION_START/END -->` HTML comment markers
+- **42 team skills** — Injected `<!-- ERROR_HANDLING_SECTION -->` with unified error handling and circuit breaker rules
+- **29 team skills** — Injected `<!-- CONSENSUS_SECTION -->` with generic 5-dimension consensus calculation (13 skills with domain-specific formulas correctly excluded)
+- `bin/sync-preamble` — Now a symlink to `bin/sync-protocols` (full backward compatibility, existing tests pass)
+- `docs/SKILL-DEVELOPMENT-GUIDE.md` — Added Protocol Management section, updated references from sync-preamble to sync-protocols
+- `SKILL-TEMPLATE.md` — Replaced inline preamble boilerplate with auto-injection note
+
+### Fixed
+- Removed duplicate generic consensus blocks from 4 skills (team-arch, team-cost, team-postmortem, team-release) that had both domain-specific and generic versions
+- Removed orphaned manual handoff sections from 3 skills (team-dev, team-review, team-security) left over from pre-sync era
+
 ## [1.7.0] - 2026-03-28
 
 ### Added
