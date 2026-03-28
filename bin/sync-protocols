@@ -1,0 +1,572 @@
+#!/usr/bin/env bash
+# sync-protocols — registry-driven protocol sync engine for SKILL.md files
+#
+# Reads protocols/registry.conf and ensures all team-*/SKILL.md files have
+# the correct canonical content for each registered protocol section.
+#
+# Usage:
+#   bin/sync-protocols                                    # check mode (default)
+#   bin/sync-protocols --fix                              # fix mode
+#   bin/sync-protocols --dry-run                          # preview changes
+#   bin/sync-protocols --verbose                          # per-file results
+#   bin/sync-protocols --skills=team-dev,team-perf        # scope to specific skills
+#   bin/sync-protocols --sections=HANDOFF,CONSENSUS       # scope to specific protocols
+#   bin/sync-protocols --remove=CONSENSUS_SECTION         # remove a protocol from all files
+#   bin/sync-protocols --migrate-preamble                 # convert preamble markers
+set -euo pipefail
+
+CTO_FLEET_DIR="${CTO_FLEET_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+REGISTRY="$CTO_FLEET_DIR/protocols/registry.conf"
+
+trap 'rm -f "$CTO_FLEET_DIR"/*/.SKILL.md.tmp 2>/dev/null' EXIT
+
+# ─── Parse arguments ─────────────────────────────────────────
+FIX=0
+DRY_RUN=0
+VERBOSE=0
+SKILL_FILTER=""
+SECTION_FILTER=""
+REMOVE_SECTION=""
+MIGRATE_PREAMBLE=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --fix)     FIX=1 ;;
+    --dry-run) DRY_RUN=1; FIX=1 ;;
+    --verbose) VERBOSE=1 ;;
+    --skills=*)   SKILL_FILTER="${arg#--skills=}" ;;
+    --sections=*) SECTION_FILTER="${arg#--sections=}" ;;
+    --remove=*)   REMOVE_SECTION="${arg#--remove=}" ;;
+    --migrate-preamble) MIGRATE_PREAMBLE=1 ;;
+    --help|-h)
+      echo "Usage: sync-protocols [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --fix                 Update mismatched sections (default: check only)"
+      echo "  --dry-run             Show what --fix would change without writing"
+      echo "  --verbose             Show per-file check results"
+      echo "  --skills=X            Comma-separated list of skills to process"
+      echo "  --sections=X          Comma-separated list of section names to process"
+      echo "  --remove=SECTION      Remove a section from all skill files"
+      echo "  --migrate-preamble    Convert legacy preamble headings to HTML markers"
+      exit 0
+      ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
+
+# ─── Parse registry ──────────────────────────────────────────
+REG_NAMES=()
+REG_SOURCES=()
+REG_GATES=()
+REG_EXCLUDES=()
+REG_ANCHORS=()
+
+parse_registry() {
+  [ -f "$REGISTRY" ] || return 0
+  while IFS= read -r line; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+
+    # Split by | and trim whitespace
+    local name source gate exclude anchor
+    name="$(echo "$line" | cut -d'|' -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    source="$(echo "$line" | cut -d'|' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    gate="$(echo "$line" | cut -d'|' -f3 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    exclude="$(echo "$line" | cut -d'|' -f4 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    anchor="$(echo "$line" | cut -d'|' -f5 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+    REG_NAMES+=("$name")
+    REG_SOURCES+=("$source")
+    REG_GATES+=("$gate")
+    REG_EXCLUDES+=("$exclude")
+    REG_ANCHORS+=("$anchor")
+  done < "$REGISTRY"
+}
+
+parse_registry
+
+# ─── Build skill list ────────────────────────────────────────
+skills=()
+if [ -n "$SKILL_FILTER" ]; then
+  IFS=',' read -ra filter_list <<< "$SKILL_FILTER"
+  for s in "${filter_list[@]}"; do
+    skill_file="$CTO_FLEET_DIR/$s/SKILL.md"
+    if [ -f "$skill_file" ]; then
+      skills+=("$skill_file")
+    else
+      echo "Warning: $skill_file not found, skipping" >&2
+    fi
+  done
+else
+  for skill_dir in "$CTO_FLEET_DIR"/*/; do
+    [ -f "$skill_dir/SKILL.md" ] || continue
+    skills+=("$skill_dir/SKILL.md")
+  done
+fi
+
+if [ ${#skills[@]} -eq 0 ]; then
+  echo "No SKILL.md files found" >&2
+  exit 1
+fi
+
+# ─── Helper: extract section from a file ─────────────────────
+# Sets EXTRACT_CONTENT, EXTRACT_START_LINE, EXTRACT_END_LINE
+# Returns 0 if found, 1 if not found, 2 if error (unpaired/duplicate)
+extract_section() {
+  local file="$1" section_name="$2"
+  local start_marker="<!-- ${section_name}_START -->"
+  local end_marker="<!-- ${section_name}_END -->"
+
+  EXTRACT_CONTENT=""
+  EXTRACT_START_LINE=0
+  EXTRACT_END_LINE=0
+
+  local start_count end_count
+  start_count=$(grep -c "^${start_marker}$" "$file" 2>/dev/null || true)
+  end_count=$(grep -c "^${end_marker}$" "$file" 2>/dev/null || true)
+
+  # Check for multiple pairs
+  if [ "$start_count" -gt 1 ] || [ "$end_count" -gt 1 ]; then
+    echo "Error: multiple ${section_name} marker pairs in $file" >&2
+    return 2
+  fi
+
+  # Check for unpaired markers
+  if [ "$start_count" -ne "$end_count" ]; then
+    echo "Error: unpaired ${section_name} markers in $file" >&2
+    return 2
+  fi
+
+  # No markers found
+  if [ "$start_count" -eq 0 ]; then
+    return 1
+  fi
+
+  # Extract content between markers (inclusive)
+  local line_num=0 in_section=0
+  local content=""
+  while IFS= read -r line; do
+    line_num=$((line_num + 1))
+    if [ "$line" = "$start_marker" ]; then
+      in_section=1
+      EXTRACT_START_LINE=$line_num
+      content="$line"
+      continue
+    fi
+    if [ $in_section -eq 1 ]; then
+      content="$content
+$line"
+      if [ "$line" = "$end_marker" ]; then
+        EXTRACT_END_LINE=$line_num
+        break
+      fi
+    fi
+  done < "$file"
+
+  EXTRACT_CONTENT="$content"
+  return 0
+}
+
+# ─── Helper: find anchor line ────────────────────────────────
+# Sets ANCHOR_LINE
+find_anchor_line() {
+  local file="$1" anchor="$2"
+  ANCHOR_LINE=0
+
+  if [ "$anchor" = "after_frontmatter" ]; then
+    # Find the 2nd --- line
+    local fm_count=0 line_num=0
+    while IFS= read -r line; do
+      line_num=$((line_num + 1))
+      if [ "$line" = "---" ]; then
+        fm_count=$((fm_count + 1))
+        if [ $fm_count -ge 2 ]; then
+          ANCHOR_LINE=$line_num
+          return 0
+        fi
+      fi
+    done < "$file"
+    return 1
+
+  elif [[ "$anchor" == after:* ]]; then
+    local keyword="${anchor#after:}"
+    local line_num=0
+    while IFS= read -r line; do
+      line_num=$((line_num + 1))
+      if echo "$line" | grep -q "$keyword"; then
+        ANCHOR_LINE=$line_num
+        return 0
+      fi
+    done < "$file"
+    return 1
+
+  elif [ "$anchor" = "end_of_file" ]; then
+    ANCHOR_LINE=$(wc -l < "$file")
+    return 0
+
+  else
+    echo "Error: unknown anchor type '$anchor'" >&2
+    return 1
+  fi
+}
+
+# ─── Helper: splice replace (outdated section) ───────────────
+splice_replace() {
+  local file="$1" start_line="$2" end_line="$3" canonical="$4"
+  local tmp="${file}.tmp"
+  head -n "$((start_line - 1))" "$file" > "$tmp"
+  echo "$canonical" >> "$tmp"
+  tail -n +"$((end_line + 1))" "$file" >> "$tmp"
+  mv "$tmp" "$file"
+}
+
+# ─── Helper: splice insert (missing section) ─────────────────
+splice_insert() {
+  local file="$1" anchor_line="$2" canonical="$3"
+  local tmp="${file}.tmp"
+  head -n "$anchor_line" "$file" > "$tmp"
+  echo "" >> "$tmp"
+  echo "$canonical" >> "$tmp"
+  echo "" >> "$tmp"
+  tail -n +"$((anchor_line + 1))" "$file" >> "$tmp"
+  mv "$tmp" "$file"
+}
+
+# ─── Helper: splice remove (delete section) ───────────────────
+splice_remove() {
+  local file="$1" start_line="$2" end_line="$3"
+  local tmp="${file}.tmp"
+  head -n "$((start_line - 1))" "$file" > "$tmp"
+  tail -n +"$((end_line + 1))" "$file" >> "$tmp"
+  mv "$tmp" "$file"
+}
+
+# ─── Migrate preamble mode ───────────────────────────────────
+if [ $MIGRATE_PREAMBLE -eq 1 ]; then
+  migrate_count=0
+  migrate_skip=0
+  migrate_error=0
+
+  for skill_file in "${skills[@]}"; do
+    skill_name="$(basename "$(dirname "$skill_file")")"
+
+    # Already has markers → skip
+    if grep -q '<!-- PREAMBLE_SECTION_START -->' "$skill_file" 2>/dev/null; then
+      migrate_skip=$((migrate_skip + 1))
+      [ $VERBOSE -eq 1 ] && echo "- $skill_name: already has markers, skipped"
+      continue
+    fi
+
+    # Find ## Preamble (run first) heading
+    local_start=0
+    local_end=0
+    line_num=0
+    while IFS= read -r line; do
+      line_num=$((line_num + 1))
+      if [ $local_start -eq 0 ] && echo "$line" | grep -q '^## Preamble (run first)'; then
+        local_start=$line_num
+        continue
+      fi
+      if [ $local_start -gt 0 ] && [ $local_end -eq 0 ] && [ "$line" = "---" ]; then
+        local_end=$line_num
+        break
+      fi
+    done < "$skill_file"
+
+    if [ $local_start -eq 0 ]; then
+      migrate_error=$((migrate_error + 1))
+      echo "- $skill_name: no preamble heading found"
+      continue
+    fi
+
+    if [ $local_end -eq 0 ]; then
+      migrate_error=$((migrate_error + 1))
+      echo "- $skill_name: no --- separator found after preamble"
+      continue
+    fi
+
+    if [ $DRY_RUN -eq 1 ]; then
+      echo "- $skill_name: would migrate preamble (lines $local_start-$local_end)"
+      migrate_count=$((migrate_count + 1))
+      continue
+    fi
+
+    # Extract content from start_line to end_line-1 (exclusive of ---)
+    preamble_content="$(sed -n "${local_start},$((local_end - 1))p" "$skill_file")"
+
+    # Build new content: markers wrapping the preamble
+    new_block="<!-- PREAMBLE_SECTION_START -->
+${preamble_content}
+<!-- PREAMBLE_SECTION_END -->"
+
+    # Replace: remove lines start through end, insert new block
+    tmp="${skill_file}.tmp"
+    head -n "$((local_start - 1))" "$skill_file" > "$tmp"
+    echo "$new_block" >> "$tmp"
+    tail -n +"$((local_end + 1))" "$skill_file" >> "$tmp"
+    mv "$tmp" "$skill_file"
+
+    migrate_count=$((migrate_count + 1))
+    echo "- $skill_name: migrated"
+  done
+
+  echo ""
+  echo "Migrate preamble: $migrate_count migrated, $migrate_skip already done, $migrate_error errors"
+  [ $migrate_error -gt 0 ] && exit 1 || exit 0
+fi
+
+# ─── Remove mode ─────────────────────────────────────────────
+if [ -n "$REMOVE_SECTION" ]; then
+  remove_count=0
+  remove_skip=0
+  remove_error=0
+
+  for skill_file in "${skills[@]}"; do
+    skill_name="$(basename "$(dirname "$skill_file")")"
+
+    if extract_section "$skill_file" "$REMOVE_SECTION"; then
+      if [ $DRY_RUN -eq 1 ]; then
+        echo "- $skill_name: would remove ${REMOVE_SECTION} (lines $EXTRACT_START_LINE-$EXTRACT_END_LINE)"
+        remove_count=$((remove_count + 1))
+      else
+        splice_remove "$skill_file" "$EXTRACT_START_LINE" "$EXTRACT_END_LINE"
+        remove_count=$((remove_count + 1))
+        echo "- $skill_name: removed ${REMOVE_SECTION}"
+      fi
+    elif [ $? -eq 2 ]; then
+      remove_error=$((remove_error + 1))
+    else
+      remove_skip=$((remove_skip + 1))
+      [ $VERBOSE -eq 1 ] && echo "- $skill_name: ${REMOVE_SECTION} not found, skipped"
+    fi
+  done
+
+  echo ""
+  echo "Remove ${REMOVE_SECTION}: $remove_count removed, $remove_skip not found, $remove_error errors"
+  [ $remove_error -gt 0 ] && exit 1 || exit 0
+fi
+
+# ─── Filter sections if --sections specified ─────────────────
+section_in_filter() {
+  local name="$1"
+  if [ -z "$SECTION_FILTER" ]; then
+    return 0
+  fi
+  local IFS=','
+  for s in $SECTION_FILTER; do
+    # Match either the full section name or without _SECTION suffix
+    if [ "$s" = "$name" ] || [ "${s}_SECTION" = "$name" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ─── Main check/fix loop ────────────────────────────────────
+# Per-section counters (parallel arrays indexed by registry index)
+declare -a SEC_OK SEC_OUTDATED SEC_MISSING SEC_SKIPPED SEC_EXCLUDED SEC_ERROR
+
+for ((i=0; i<${#REG_NAMES[@]}; i++)); do
+  SEC_OK[$i]=0
+  SEC_OUTDATED[$i]=0
+  SEC_MISSING[$i]=0
+  SEC_SKIPPED[$i]=0
+  SEC_EXCLUDED[$i]=0
+  SEC_ERROR[$i]=0
+done
+
+# Load canonical content for each section
+declare -a CANONICAL_CONTENT
+has_load_error=0
+
+for ((i=0; i<${#REG_NAMES[@]}; i++)); do
+  section_name="${REG_NAMES[$i]}"
+  source_file="$CTO_FLEET_DIR/${REG_SOURCES[$i]}"
+
+  if ! section_in_filter "$section_name"; then
+    CANONICAL_CONTENT[$i]=""
+    continue
+  fi
+
+  if [ ! -f "$source_file" ]; then
+    echo "Error: source file not found: $source_file (for $section_name)" >&2
+    CANONICAL_CONTENT[$i]=""
+    has_load_error=1
+    continue
+  fi
+
+  # Extract canonical content (markers inclusive) from source file
+  if extract_section "$source_file" "$section_name"; then
+    CANONICAL_CONTENT[$i]="$EXTRACT_CONTENT"
+  else
+    echo "Error: cannot extract $section_name from $source_file" >&2
+    CANONICAL_CONTENT[$i]=""
+    has_load_error=1
+  fi
+done
+
+# Track overall issues
+any_issues=0
+
+for skill_file in "${skills[@]}"; do
+  skill_name="$(basename "$(dirname "$skill_file")")"
+
+  # Process sections in REVERSE order (bottom-up to preserve line numbers)
+  for ((i=${#REG_NAMES[@]}-1; i>=0; i--)); do
+    section_name="${REG_NAMES[$i]}"
+    gate="${REG_GATES[$i]}"
+    exclude="${REG_EXCLUDES[$i]}"
+    anchor="${REG_ANCHORS[$i]}"
+    canonical="${CANONICAL_CONTENT[$i]}"
+
+    # Skip filtered sections
+    if ! section_in_filter "$section_name"; then
+      continue
+    fi
+
+    # Skip sections with load errors
+    if [ -z "$canonical" ]; then
+      SEC_ERROR[$i]=$((${SEC_ERROR[$i]} + 1))
+      continue
+    fi
+
+    # Gate check
+    if [ "$gate" != "*" ]; then
+      if ! grep -q "$gate" "$skill_file" 2>/dev/null; then
+        SEC_SKIPPED[$i]=$((${SEC_SKIPPED[$i]} + 1))
+        [ $VERBOSE -eq 1 ] && echo "  - $skill_name: $section_name skipped (no '$gate')"
+        continue
+      fi
+    fi
+
+    # Exclude check
+    if [ -n "$exclude" ]; then
+      if grep -q "$exclude" "$skill_file" 2>/dev/null; then
+        SEC_EXCLUDED[$i]=$((${SEC_EXCLUDED[$i]} + 1))
+        [ $VERBOSE -eq 1 ] && echo "  - $skill_name: $section_name excluded (has '$exclude')"
+        continue
+      fi
+    fi
+
+    # Extract existing section
+    extract_rc=0
+    extract_section "$skill_file" "$section_name" || extract_rc=$?
+
+    if [ $extract_rc -eq 2 ]; then
+      # Error (unpaired/duplicate markers)
+      SEC_ERROR[$i]=$((${SEC_ERROR[$i]} + 1))
+      any_issues=1
+      continue
+    fi
+
+    if [ $extract_rc -eq 1 ]; then
+      # ─── Special: legacy preamble detection ─────────
+      if [ "$section_name" = "PREAMBLE_SECTION" ]; then
+        # Check for legacy format: ## Preamble (run first) ... ---
+        legacy_start=0
+        legacy_end=0
+        legacy_content=""
+        l_num=0
+        in_legacy=0
+        while IFS= read -r line; do
+          l_num=$((l_num + 1))
+          if [ $in_legacy -eq 0 ] && echo "$line" | grep -q '^## Preamble (run first)'; then
+            in_legacy=1
+            legacy_start=$l_num
+            legacy_content="$line"
+            continue
+          fi
+          if [ $in_legacy -eq 1 ]; then
+            if [ "$line" = "---" ]; then
+              legacy_end=$l_num
+              break
+            fi
+            legacy_content="$legacy_content
+$line"
+          fi
+        done < "$skill_file"
+
+        if [ $legacy_start -gt 0 ] && [ $legacy_end -gt 0 ]; then
+          # Compare against canonical (strip markers for comparison)
+          canonical_inner="$(echo "$canonical" | sed '1d' | sed '$d')"
+          if [ "$legacy_content" = "$canonical_inner" ]; then
+            SEC_OK[$i]=$((${SEC_OK[$i]} + 1))
+            [ $VERBOSE -eq 1 ] && echo "  ✓ $skill_name: $section_name OK (legacy)"
+          else
+            SEC_OUTDATED[$i]=$((${SEC_OUTDATED[$i]} + 1))
+            echo "  ✗ $skill_name: $section_name OUTDATED (legacy)"
+            any_issues=1
+          fi
+          if [ $FIX -eq 0 ]; then
+            echo "  hint: run --migrate-preamble to convert legacy markers"
+          fi
+          continue
+        fi
+      fi
+
+      # Missing — no markers found
+      SEC_MISSING[$i]=$((${SEC_MISSING[$i]} + 1))
+      any_issues=1
+      echo "✗ $skill_name: $section_name MISSING"
+
+      if [ $FIX -eq 1 ]; then
+        if [ $DRY_RUN -eq 1 ]; then
+          echo "  → dry-run: would insert $section_name at $anchor"
+        else
+          if find_anchor_line "$skill_file" "$anchor"; then
+            splice_insert "$skill_file" "$ANCHOR_LINE" "$canonical"
+            echo "  → inserted $section_name"
+          else
+            echo "  → error: could not find anchor '$anchor'" >&2
+            SEC_ERROR[$i]=$((${SEC_ERROR[$i]} + 1))
+          fi
+        fi
+      fi
+      continue
+    fi
+
+    # Section found — compare
+    if [ "$EXTRACT_CONTENT" = "$canonical" ]; then
+      SEC_OK[$i]=$((${SEC_OK[$i]} + 1))
+      [ $VERBOSE -eq 1 ] && echo "  ✓ $skill_name: $section_name OK"
+    else
+      SEC_OUTDATED[$i]=$((${SEC_OUTDATED[$i]} + 1))
+      any_issues=1
+      echo "✗ $skill_name: $section_name OUTDATED"
+
+      if [ $FIX -eq 1 ]; then
+        if [ $DRY_RUN -eq 1 ]; then
+          echo "  → dry-run: would update $section_name (lines $EXTRACT_START_LINE-$EXTRACT_END_LINE)"
+        else
+          splice_replace "$skill_file" "$EXTRACT_START_LINE" "$EXTRACT_END_LINE" "$canonical"
+          echo "  → updated $section_name"
+        fi
+      fi
+    fi
+  done
+done
+
+# ─── Summary ─────────────────────────────────────────────────
+echo ""
+for ((i=0; i<${#REG_NAMES[@]}; i++)); do
+  section_name="${REG_NAMES[$i]}"
+  if ! section_in_filter "$section_name"; then
+    continue
+  fi
+  ok=${SEC_OK[$i]}
+  outdated=${SEC_OUTDATED[$i]}
+  missing=${SEC_MISSING[$i]}
+  skipped=${SEC_SKIPPED[$i]}
+  excluded=${SEC_EXCLUDED[$i]}
+  errors=${SEC_ERROR[$i]}
+  echo "${section_name}: $ok OK, $outdated outdated, $missing missing, $errors errors, $skipped skipped, $excluded excluded"
+done
+
+if [ $FIX -eq 0 ] && [ $any_issues -gt 0 ]; then
+  echo ""
+  echo "Run with --fix to update, or --dry-run to preview changes."
+fi
+
+[ $any_issues -eq 0 ] && [ $has_load_error -eq 0 ] && exit 0 || exit 1

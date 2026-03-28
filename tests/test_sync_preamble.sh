@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests for bin/sync-preamble
+# Unit tests for bin/sync-preamble (backward compat via sync-protocols)
 # Run: bash tests/test_sync_preamble.sh
 set -euo pipefail
 
@@ -13,7 +13,26 @@ TOTAL=0
 setup() {
   TEST_DIR="$(mktemp -d)"
   export CTO_FLEET_DIR="$TEST_DIR/cto-fleet"
-  mkdir -p "$CTO_FLEET_DIR/bin"
+  mkdir -p "$CTO_FLEET_DIR/bin" "$CTO_FLEET_DIR/protocols"
+
+  # Create protocol registry (only preamble for these tests)
+  cat > "$CTO_FLEET_DIR/protocols/registry.conf" << 'REGEOF'
+PREAMBLE_SECTION | protocols/preamble.md | * | | after_frontmatter
+REGEOF
+
+  # Create canonical preamble source with markers
+  cat > "$CTO_FLEET_DIR/protocols/preamble.md" << 'PEOF'
+<!-- PREAMBLE_SECTION_START -->
+## Preamble (run first)
+
+```bash
+_UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true)
+[ -n "$_UPD" ] && echo "$_UPD" || true
+```
+
+If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.
+<!-- PREAMBLE_SECTION_END -->
+PEOF
 }
 
 teardown() {
@@ -72,40 +91,7 @@ assert_exit_nonzero() {
   fi
 }
 
-# Create a reference skill with correct preamble (used as canonical source)
-PREAMBLE_BLOCK='## Preamble (run first)
-
-```bash
-_UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
-```
-
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.'
-
-create_ref_skill() {
-  # Create team-dev as canonical reference
-  mkdir -p "$CTO_FLEET_DIR/team-dev"
-  cat > "$CTO_FLEET_DIR/team-dev/SKILL.md" << 'REFEOF'
----
-name: team-dev
-description: reference skill
----
-
-## Preamble (run first)
-
-```bash
-_UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true)
-[ -n "$_UPD" ] && echo "$_UPD" || true
-```
-
-If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.
-
----
-
-Rest of skill content here.
-REFEOF
-}
-
+# Skills now use HTML marker format (new canonical format)
 create_skill_with_correct_preamble() {
   local name="$1"
   mkdir -p "$CTO_FLEET_DIR/$name"
@@ -115,6 +101,7 @@ name: test-skill
 description: test
 ---
 
+<!-- PREAMBLE_SECTION_START -->
 ## Preamble (run first)
 
 ```bash
@@ -123,10 +110,9 @@ _UPD=$(~/.claude/skills/cto-fleet/bin/cto-fleet-update-check 2>/dev/null || true
 ```
 
 If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-fleet/cto-fleet-upgrade/SKILL.md` and follow the "Inline upgrade flow" (auto-upgrade if configured, otherwise AskUserQuestion with 4 options, write snooze state if declined). If `JUST_UPGRADED <from> <to>`: tell user "Running cto-fleet v{to} (just updated!)" and continue.
+<!-- PREAMBLE_SECTION_END -->
 
----
-
-Actual skill body.
+Rest of skill content here.
 EOF
 }
 
@@ -156,6 +142,7 @@ name: wrong-preamble
 description: test skill with outdated preamble
 ---
 
+<!-- PREAMBLE_SECTION_START -->
 ## Preamble (run first)
 
 ```bash
@@ -163,8 +150,7 @@ echo "old preamble"
 ```
 
 Old instructions that don't match.
-
----
+<!-- PREAMBLE_SECTION_END -->
 
 Actual skill body.
 EOF
@@ -173,7 +159,7 @@ EOF
 # ─── Test 1: --check detects consistent preamble → exit 0 ───
 echo "Test: --check with consistent preamble"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_with_correct_preamble "team-test-ok"
   result="$("$SYNC_CMD" --verbose 2>&1 || true)"
   assert_contains "reports OK for matching skill" "OK" "$result"
@@ -183,7 +169,7 @@ teardown
 # ─── Test 2: --check detects missing preamble → exit non-zero ─
 echo "Test: --check with missing preamble"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_missing_preamble "team-no-pre"
   result="$("$SYNC_CMD" 2>&1 || true)"
   assert_contains "reports MISSING" "MISSING" "$result"
@@ -193,7 +179,7 @@ teardown
 # ─── Test 3: --check detects mismatched preamble → exit non-zero ─
 echo "Test: --check with mismatched preamble"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_wrong_preamble "team-wrong"
   result="$("$SYNC_CMD" 2>&1 || true)"
   assert_contains "reports OUTDATED" "OUTDATED" "$result"
@@ -203,12 +189,12 @@ teardown
 # ─── Test 4: --fix repairs missing preamble ──────────────────
 echo "Test: --fix inserts preamble into missing file"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_missing_preamble "team-fix-missing"
   "$SYNC_CMD" --fix >/dev/null 2>&1 || true
-  # After fix, the file should contain the preamble header
+  # After fix, the file should contain the preamble marker
   TOTAL=$((TOTAL + 1))
-  if grep -q '## Preamble (run first)' "$CTO_FLEET_DIR/team-fix-missing/SKILL.md"; then
+  if grep -q 'PREAMBLE_SECTION_START' "$CTO_FLEET_DIR/team-fix-missing/SKILL.md"; then
     PASS=$((PASS + 1))
     echo "  PASS: preamble inserted into previously-missing file"
   else
@@ -222,7 +208,7 @@ teardown
 # ─── Test 5: --fix repairs mismatched preamble ───────────────
 echo "Test: --fix updates outdated preamble"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_wrong_preamble "team-fix-wrong"
   "$SYNC_CMD" --fix >/dev/null 2>&1 || true
   fixed_content="$(cat "$CTO_FLEET_DIR/team-fix-wrong/SKILL.md")"
@@ -244,7 +230,7 @@ teardown
 # ─── Test 6: --dry-run does not modify files ─────────────────
 echo "Test: --dry-run does not modify files"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_wrong_preamble "team-dryrun"
   original="$(cat "$CTO_FLEET_DIR/team-dryrun/SKILL.md")"
   result="$("$SYNC_CMD" --dry-run 2>&1 || true)"
@@ -256,7 +242,7 @@ teardown
 # ─── Test 7: --skills filters to specific skills ─────────────
 echo "Test: --skills filter"
 setup
-  create_ref_skill
+  create_skill_with_correct_preamble "team-dev"
   create_skill_with_correct_preamble "team-alpha"
   create_skill_wrong_preamble "team-beta"
   # Only check team-alpha (which is correct) — should pass
