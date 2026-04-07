@@ -45,6 +45,7 @@ If output shows `UPGRADE_AVAILABLE <old> <new>`: read `~/.claude/skills/cto-flee
 
 | 意图信号（中/英） | 目标 Skill | 传递参数 |
 |---------|-----------|---------|
+| "小改动""快速实现""简单功能""小 feature""小需求""改个配置""加个字段""tweaks" / "quick fix""small feature""simple change""minor update""quick task""tweak" | `/team-quick` | `[--auto] [--once] [--lang]` |
 | "开发""实现""新增功能""添加""创建功能""做一个" / "implement""add feature""build""create" | `/team-dev` | `[--auto] [--once] [--lang]` |
 | "重构""迁移""拆分模块""合并模块""重命名""提取接口" / "refactor""migrate""split""merge module""extract interface" | `/team-refactor` | `[--auto] [--once] [--scope=module\|package\|system] [--lang]` |
 | "修复 bug""debug""定位问题""排查""为什么报错""崩溃" / "fix bug""debug""troubleshoot""why error""crash" | `/team-debug` | `[--auto] [--once] [--lang]` |
@@ -240,6 +241,7 @@ options:
 
 | Skill | 一句话描述 | 中文示例 | English Example |
 |-------|-----------|---------|----------------|
+| `/team-quick` | 轻量级日常迭代 | "加个配置项""改个字段" | "quick small feature""simple tweak" |
 | `/team-dev` | 完整研发流程 | "帮我实现用户登录功能" | "implement user login" |
 | `/team-debug` | 系统化 Bug 诊断 | "这个接口偶尔返回 500" | "debug intermittent 500 errors" |
 | `/team-perf` | 性能剖析优化 | "列表页加载太慢了" | "optimize slow page load" |
@@ -296,13 +298,13 @@ options:
 
 | 组合模式 | 推荐顺序 |
 |---------|---------|
-| "开发 + 审查" | `/team-dev` → `/team-review` |
-| "设计 + 开发" | `/team-rfc` → `/team-dev` |
+| "开发 + 审查" | `/team-quick` → `/team-review`（轻量）或 `/team-dev` → `/team-review`（完整） |
+| "设计 + 开发" | `/team-rfc` → `/team-quick`（轻量）或 `/team-rfc` → `/team-dev`（完整） |
 | "故障 + 复盘" | `/team-incident` → `/team-postmortem` |
-| "审计 + 修复" | `/team-security` → `/team-dev` |
+| "审计 + 修复" | `/team-security` → `/team-quick`（轻量修复）或 `/team-security` → `/team-dev`（完整修复） |
 | "架构分析 + 重构" | `/team-arch` → `/team-refactor` |
 | "调研 + 方案" | `/team-research` → `/team-rfc` |
-| "开发 + 发布" | `/team-dev` → `/team-release` |
+| "开发 + 发布" | `/team-quick` → `/team-release`（轻量）或 `/team-dev` → `/team-release`（完整） |
 | "性能分析 + 优化代码" | `/team-perf`（内含优化实施） |
 | "审查 + 安全 + 性能" | AskUserQuestion 让用户选优先级 |
 | "API设计 + 开发实现" | `/team-api-design` → `/team-dev` |
